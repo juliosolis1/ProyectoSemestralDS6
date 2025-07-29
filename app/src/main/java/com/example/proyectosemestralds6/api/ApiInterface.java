@@ -4,6 +4,7 @@ import com.example.proyectosemestralds6.api.dto.ChargeRequest;
 import com.example.proyectosemestralds6.api.dto.LoginRequest;
 import com.example.proyectosemestralds6.api.dto.RegisterRequest;
 import com.example.proyectosemestralds6.api.dto.VehicleRequest;
+import com.example.proyectosemestralds6.api.response.AuthResponse;
 import com.example.proyectosemestralds6.database.entities.Carga;
 import com.example.proyectosemestralds6.database.entities.Usuario;
 import com.example.proyectosemestralds6.database.entities.Vehiculo;
@@ -22,10 +23,10 @@ import retrofit2.http.Path;
 public interface ApiInterface {
     // Autenticación
     @POST("auth/register")
-    Call<Usuario> registerUser(@Body RegisterRequest request);
+    Call<AuthResponse> registerUser(@Body RegisterRequest request);
 
     @POST("auth/login")
-    Call<Usuario> loginUser(@Body LoginRequest request);
+    Call<AuthResponse> loginUser(@Body LoginRequest request);
 
     // Usuarios
     @PUT("users/{id}")
