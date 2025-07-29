@@ -32,5 +32,8 @@ public interface CargaDao {
     
     @Query("DELETE FROM cargas")
     void deleteAll();
+
+    @Update
+    void update(Carga carga);
 }
 
