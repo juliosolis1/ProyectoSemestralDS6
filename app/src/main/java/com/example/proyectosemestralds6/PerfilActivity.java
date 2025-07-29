@@ -9,8 +9,16 @@ import android.widget.EditText;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import com.example.proyectosemestralds6.api.ApiClient;
+import com.example.proyectosemestralds6.api.ApiInterface;
+import com.example.proyectosemestralds6.api.dto.LoginRequest;
+import com.example.proyectosemestralds6.api.dto.RegisterRequest;
+import com.example.proyectosemestralds6.api.response.AuthResponse;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import java.text.DecimalFormat;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 public class PerfilActivity extends AppCompatActivity {
 
@@ -114,6 +122,70 @@ public class PerfilActivity extends AppCompatActivity {
         } catch (NumberFormatException e) {
             showToast("Por favor ingrese valores numéricos válidos");
         }
+    }
+
+    // Método para iniciar sesión (ejemplo)
+    private void loginUser(String email, String password) {
+        ApiInterface apiService = ApiClient.getApiService();
+        LoginRequest request = new LoginRequest(email, password);
+
+        Call<AuthResponse> call = apiService.loginUser(request);
+        call.enqueue(new Callback<AuthResponse>() {
+            @Override
+            public void onResponse(Call<AuthResponse> call, Response<AuthResponse> response) {
+                if (response.isSuccessful()) {
+                    AuthResponse authResponse = response.body();
+                    // Guardar token y userId en SharedPreferences
+                    SharedPreferences.Editor editor = preferences.edit();
+                    editor.putString("token", authResponse.getToken());
+                    editor.putInt("userId", authResponse.getUserId());
+                    editor.apply();
+
+                    // Actualizar UI
+                    loadUserData();
+                } else {
+                    showToast("Error en credenciales");
+                }
+            }
+
+            @Override
+            public void onFailure(Call<AuthResponse> call, Throwable t) {
+                showToast("Error de conexión");
+            }
+        });
+    }
+
+    // Método para registrar usuario (ejemplo)
+    private void registerUser(String name, String email, String password) {
+        ApiInterface apiService = ApiClient.getApiService();
+        RegisterRequest request = new RegisterRequest(name, email, password, password);
+
+        Call<AuthResponse> call = apiService.registerUser(request);
+        call.enqueue(new Callback<AuthResponse>() {
+            @Override
+            public void onResponse(Call<AuthResponse> call, Response<AuthResponse> response) {
+                if (response.isSuccessful()) {
+                    AuthResponse authResponse = response.body();
+                    // Guardar token y userId
+                    SharedPreferences.Editor editor = preferences.edit();
+                    editor.putString("token", authResponse.getToken());
+                    editor.putInt("userId", authResponse.getUserId());
+                    editor.putString("nombre_usuario", name);
+                    editor.putString("email_usuario", email);
+                    editor.apply();
+
+                    // Actualizar UI
+                    loadUserData();
+                } else {
+                    showToast("Error en registro");
+                }
+            }
+
+            @Override
+            public void onFailure(Call<AuthResponse> call, Throwable t) {
+                showToast("Error de conexión");
+            }
+        });
     }
 
     private void showToast(String mensaje) {

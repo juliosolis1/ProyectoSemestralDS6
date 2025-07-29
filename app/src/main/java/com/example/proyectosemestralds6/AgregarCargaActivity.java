@@ -15,10 +15,19 @@ import androidx.appcompat.widget.Toolbar;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
-import androidx.room.Room;
+
+import com.example.proyectosemestralds6.api.ApiClient;
+import com.example.proyectosemestralds6.api.ApiInterface;
+import com.example.proyectosemestralds6.api.dto.ChargeRequest;
 import com.example.proyectosemestralds6.database.AppDatabase;
 import com.example.proyectosemestralds6.database.entities.Carga;
+import com.example.proyectosemestralds6.database.entities.Vehiculo;
+
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 public class AgregarCargaActivity extends AppCompatActivity {
 
@@ -41,24 +50,14 @@ public class AgregarCargaActivity extends AppCompatActivity {
         initializeViews();
         setupToolbar();
 
-        db = Room.databaseBuilder(
-                        getApplicationContext(),
-                        AppDatabase.class, "mi_base_de_datos")
-                .allowMainThreadQueries()  // solo para pruebas
-                .build();
-        
-        // Use the singleton instance instead
         db = AppDatabase.getDatabase(this);
-
         preferences = getSharedPreferences("EVChargeTracker", MODE_PRIVATE);
 
         setupSpinner();
         setupDateTimePickers();
         setupSaveButton();
         setDefaultValues();
-
     }
-
 
     private void initializeViews() {
         toolbar = findViewById(R.id.toolbar);
@@ -172,41 +171,79 @@ public class AgregarCargaActivity extends AppCompatActivity {
             float tarifaElectrica = preferences.getFloat("tarifa_electrica", 0.50f);
             double costo = kwh * tarifaElectrica;
 
-            // Use the Room entity instead of the model class
-            com.example.proyectosemestralds6.database.entities.Carga carga = 
-                new com.example.proyectosemestralds6.database.entities.Carga();
-            
-            // Get the first available vehicle (or create default logic)
-            List<com.example.proyectosemestralds6.database.entities.Vehiculo> vehiculos = 
-                db.vehiculoDao().getAll();
+            // Obtener vehículos de la base de datos local
+            List<Vehiculo> vehiculos = db.vehiculoDao().getAll();
             if (vehiculos.isEmpty()) {
-                // Create a default vehicle if none exists
+                // Crear un vehículo por defecto si no existe
                 DatabaseInitializer.initializeDatabase(db);
                 vehiculos = db.vehiculoDao().getAll();
             }
-            
-            carga.idVehiculo = vehiculos.get(0).id; // Use first vehicle
-            carga.lugar = ubicacion;
-            carga.fecha = dateFormat.format(selectedDateTime.getTime());
-            carga.energia_kwh = (float) kwh;
-            carga.duracion_min = duracionTotal;
-            carga.costo = (float) costo;
 
-            // Guardar en base de datos
-            long id = db.cargaDao().insert(carga);
+            int vehicleId = vehiculos.get(0).id; // Usar el primer vehículo
 
-            if (id > 0) {
-                Toast.makeText(this, "Carga guardada exitosamente", Toast.LENGTH_SHORT).show();
-                finish();
-            } else {
-                Toast.makeText(this, "Error al guardar la carga", Toast.LENGTH_SHORT).show();
-            }
+            // Crear objeto Carga para Room (base de datos local)
+            Carga cargaLocal = new Carga();
+            cargaLocal.idVehiculo = vehicleId;
+            cargaLocal.lugar = ubicacion;
+            cargaLocal.fecha = dateFormat.format(selectedDateTime.getTime());
+            cargaLocal.energia_kwh = (float) kwh;
+            cargaLocal.duracion_min = duracionTotal;
+            cargaLocal.costo = (float) costo;
+
+            // Guardar en base de datos local
+            long localId = db.cargaDao().insert(cargaLocal);
+            cargaLocal.id = (int) localId;
+
+            // Crear DTO para la solicitud de API
+            ChargeRequest request = new ChargeRequest(
+                    vehicleId,
+                    selectedDateTime.getTime(), // Fecha como Date
+                    (float) kwh,
+                    duracionTotal,
+                    (float) costo,
+                    ubicacion
+            );
+
+            // Obtener token de autenticación
+            String token = "Bearer " + obtenerTokenDeSharedPreferences();
+
+            // Enviar al servidor
+            ApiInterface apiService = ApiClient.getApiService();
+            Call<Carga> call = apiService.createCharge(token, request);
+            call.enqueue(new Callback<Carga>() {
+                @Override
+                public void onResponse(Call<Carga> call, Response<Carga> response) {
+                    if (response.isSuccessful()) {
+                        // Actualizar la carga local con el ID del servidor si es necesario
+                        Carga cargaRemota = response.body();
+                        if (cargaRemota != null) {
+                            cargaLocal.id = cargaRemota.id;
+                            db.cargaDao().update(cargaLocal);
+                        }
+                        Toast.makeText(AgregarCargaActivity.this, "Carga guardada exitosamente", Toast.LENGTH_SHORT).show();
+                    } else {
+                        Toast.makeText(AgregarCargaActivity.this, "Error al guardar en el servidor", Toast.LENGTH_SHORT).show();
+                    }
+                    finish();
+                }
+
+                @Override
+                public void onFailure(Call<Carga> call, Throwable t) {
+                    Toast.makeText(AgregarCargaActivity.this, "Carga guardada localmente. Error de conexión: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                    finish();
+                }
+            });
 
         } catch (NumberFormatException e) {
             Toast.makeText(this, "Por favor ingrese valores numéricos válidos", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Toast.makeText(this, "Error inesperado: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private String obtenerTokenDeSharedPreferences() {
+        SharedPreferences prefs = getSharedPreferences("EVChargeTracker", MODE_PRIVATE);
+        return prefs.getString("token", "");
     }
 
     private boolean validarCampos() {
