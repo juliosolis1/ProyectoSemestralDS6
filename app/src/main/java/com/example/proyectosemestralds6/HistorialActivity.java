@@ -9,6 +9,9 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.room.Room;
+import com.example.proyectosemestralds6.database.AppDatabase;
+import com.example.proyectosemestralds6.database.entities.Carga;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import java.util.List;
@@ -18,11 +21,10 @@ public class HistorialActivity extends AppCompatActivity {
     private Button btnTodos, btnCasa, btnEstacion, btnCargaLenta;
     private RecyclerView recyclerViewHistorial;
     private CargaAdapter cargaAdapter;
-    private List<Carga> cargasHistorial;
     private BottomNavigationView bottomNavigation;
     private FloatingActionButton fabAgregarCarga;
 
-    private DatabaseHelper dbHelper;
+    private AppDatabase db;
     private String filtroActual = "todos";
 
     @Override
@@ -30,12 +32,16 @@ public class HistorialActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_historial);
 
+        db = Room.databaseBuilder(
+                        getApplicationContext(),
+                        AppDatabase.class, "mi_base_de_datos")
+                .allowMainThreadQueries()
+                .build();
+
         initializeViews();
-        setupDatabase();
         setupBottomNavigation();
         setupFloatingActionButton();
         setupFilterButtons();
-        loadHistorialData();
         setupRecyclerView();
     }
 
@@ -49,9 +55,6 @@ public class HistorialActivity extends AppCompatActivity {
         fabAgregarCarga = findViewById(R.id.fab_agregar_carga);
     }
 
-    private void setupDatabase() {
-        dbHelper = new DatabaseHelper(this);
-    }
 
     private void setupBottomNavigation() {
         bottomNavigation.setSelectedItemId(R.id.nav_historial);
@@ -84,32 +87,13 @@ public class HistorialActivity extends AppCompatActivity {
     }
 
     private void setupFilterButtons() {
-        btnTodos.setOnClickListener(v -> {
-            filtroActual = "todos";
-            updateFilterButtons();
-            loadHistorialData();
-        });
-
-        btnCasa.setOnClickListener(v -> {
-            filtroActual = "casa";
-            updateFilterButtons();
-            loadHistorialData();
-        });
-
-        btnEstacion.setOnClickListener(v -> {
-            filtroActual = "estacion";
-            updateFilterButtons();
-            loadHistorialData();
-        });
-
-        btnCargaLenta.setOnClickListener(v -> {
-            filtroActual = "carga_lenta";
-            updateFilterButtons();
-            loadHistorialData();
-        });
-
-        updateFilterButtons();
+        btnTodos.setOnClickListener(v -> { filtroActual = "todos"; loadHistorialData(); });
+        btnCasa.setOnClickListener(v -> { filtroActual = "Casa%"; loadHistorialData(); });
+        btnEstacion.setOnClickListener(v -> { filtroActual = "Estación%"; loadHistorialData(); });
+        btnCargaLenta.setOnClickListener(v -> { filtroActual = "lenta%"; loadHistorialData(); });
+        loadHistorialData();
     }
+
 
     private void updateFilterButtons() {
         // Reset all buttons
@@ -136,32 +120,24 @@ public class HistorialActivity extends AppCompatActivity {
     }
 
     private void loadHistorialData() {
+        List<Carga> cargas;
         switch (filtroActual) {
             case "todos":
-                cargasHistorial = dbHelper.getAllCargas();
+                cargas = db.cargaDao().getAllCargas();
                 break;
-            case "casa":
-                cargasHistorial = dbHelper.getCargasByUbicacion("casa");
+            case "Casa%":
+            case "Estación%":
+                cargas = db.cargaDao().getCargasByUbicacion(filtroActual);
                 break;
-            case "estacion":
-                cargasHistorial = dbHelper.getCargasByUbicacion("estacion");
-                break;
-            case "carga_lenta":
-                cargasHistorial = dbHelper.getCargasByTipo("lenta");
+            case "lenta%":
+                cargas = db.cargaDao().getCargasByTipo(filtroActual);
                 break;
             default:
-                cargasHistorial = dbHelper.getAllCargas();
-                break;
-        }
-
-        if (cargaAdapter != null) {
-            cargaAdapter.updateCargas(cargasHistorial);
+                cargas = db.cargaDao().getAllCargas();
         }
     }
 
     private void setupRecyclerView() {
-        cargasHistorial = dbHelper.getAllCargas();
-        cargaAdapter = new CargaAdapter(cargasHistorial, true);
         recyclerViewHistorial.setLayoutManager(new LinearLayoutManager(this));
         recyclerViewHistorial.setAdapter(cargaAdapter);
     }

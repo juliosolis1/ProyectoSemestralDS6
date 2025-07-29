@@ -9,27 +9,25 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.room.Room;
+import com.example.proyectosemestralds6.database.AppDatabase;
+import com.example.proyectosemestralds6.database.entities.Carga;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import java.text.DecimalFormat;
-import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
-    private TextView gastoTotalText;
-    private TextView cargasTotalesText;
-    private TextView kwhCargadosText;
-    private TextView promedioCargaText;
-    private TextView cargasEnCasaText;
+    private TextView gastoTotalText, cargasTotalesText, kwhCargadosText,
+            promedioCargaText, cargasEnCasaText;
     private RecyclerView recyclerViewRecientes;
     private CargaAdapter cargaAdapter;
-    private List<Carga> cargasRecientes;
     private BottomNavigationView bottomNavigation;
     private FloatingActionButton fabAgregarCarga;
 
-    private DatabaseHelper dbHelper;
+    private AppDatabase db;
     private DecimalFormat decimalFormat = new DecimalFormat("#.##");
 
     @Override
@@ -37,15 +35,21 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        db = Room.databaseBuilder(
+                        getApplicationContext(),
+                        AppDatabase.class, "mi_base_de_datos")
+                .allowMainThreadQueries()
+                .build();
+
         initializeViews();
-        setupDatabase();
         setupBottomNavigation();
         setupFloatingActionButton();
         loadDashboardData();
         setupRecyclerView();
     }
 
-    private void initializeViews() {
+
+        private void initializeViews() {
         gastoTotalText = findViewById(R.id.txt_gasto_total);
         cargasTotalesText = findViewById(R.id.txt_cargas_totales);
         kwhCargadosText = findViewById(R.id.txt_kwh_cargados);
@@ -54,14 +58,6 @@ public class MainActivity extends AppCompatActivity {
         recyclerViewRecientes = findViewById(R.id.recycler_cargas_recientes);
         bottomNavigation = findViewById(R.id.bottom_navigation);
         fabAgregarCarga = findViewById(R.id.fab_agregar_carga);
-    }
-
-    private void setupDatabase() {
-        dbHelper = new DatabaseHelper(this);
-        // Insertar datos de ejemplo si la base está vacía
-        if (dbHelper.getAllCargas().isEmpty()) {
-            insertSampleData();
-        }
     }
 
     private void setupBottomNavigation() {
@@ -95,107 +91,46 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void loadDashboardData() {
-        List<Carga> todasLasCargas = dbHelper.getAllCargas();
+        List<Carga> todas = db.cargaDao().getAllCargas();
 
-        // Calcular estadísticas
-        double gastoTotal = 0;
-        double kwhTotal = 0;
+        double gastoTotal = 0, kwhTotal = 0;
         int cargasEnCasa = 0;
-
         Calendar cal = Calendar.getInstance();
-        int mesActual = cal.get(Calendar.MONTH);
-        int añoActual = cal.get(Calendar.YEAR);
+        int mes = cal.get(Calendar.MONTH), año = cal.get(Calendar.YEAR);
 
-        for (Carga carga : todasLasCargas) {
-            Calendar cargaCal = Calendar.getInstance();
-            cargaCal.setTime(carga.getFecha());
-
-            // Solo contar cargas del mes actual
-            if (cargaCal.get(Calendar.MONTH) == mesActual &&
-                    cargaCal.get(Calendar.YEAR) == añoActual) {
-                gastoTotal += carga.getCosto();
-                kwhTotal += carga.getKwhCargados();
-                if (carga.getUbicacion().toLowerCase().contains("casa")) {
-                    cargasEnCasa++;
-                }
+        for (Carga c : todas) {
+            // asumiendo que fecha está en formato "dd/MM/yyyy"
+            String[] partes = c.fecha.split("/");
+            int dia = Integer.parseInt(partes[0]) - 1;
+            int mesC = Integer.parseInt(partes[1]) - 1;
+            int añoC = Integer.parseInt(partes[2]);
+            cal.set(añoC, mesC, dia);
+            if (mesC == mes && añoC == año) {
+                gastoTotal += c.costo;
+                kwhTotal += c.energia_kwh;
+                if (c.lugar.toLowerCase().contains("casa")) cargasEnCasa++;
             }
         }
 
-        // Actualizar UI
         gastoTotalText.setText("$" + decimalFormat.format(gastoTotal));
-        cargasTotalesText.setText(String.valueOf(todasLasCargas.size()));
+        cargasTotalesText.setText(String.valueOf(todas.size()));
         kwhCargadosText.setText(decimalFormat.format(kwhTotal));
-
-        if (todasLasCargas.size() > 0) {
-            double promedio = gastoTotal / todasLasCargas.size();
-            promedioCargaText.setText("$" + decimalFormat.format(promedio));
-        } else {
-            promedioCargaText.setText("$0.00");
-        }
-
-        // Calcular porcentaje de cargas en casa
-        int porcentajeCasa = todasLasCargas.size() > 0 ?
-                (int) ((double) cargasEnCasa / todasLasCargas.size() * 100) : 0;
-        cargasEnCasaText.setText(porcentajeCasa + "%");
+        promedioCargaText.setText(
+                todas.isEmpty() ? "$0.00" : "$" + decimalFormat.format(gastoTotal / todas.size())
+        );
+        int porcCasa = todas.isEmpty() ? 0 : (cargasEnCasa * 100 / todas.size());
+        cargasEnCasaText.setText(porcCasa + "%");
     }
 
     private void setupRecyclerView() {
-        cargasRecientes = dbHelper.getCargasRecientes(5);
-        cargaAdapter = new CargaAdapter(cargasRecientes, false);
         recyclerViewRecientes.setLayoutManager(new LinearLayoutManager(this));
         recyclerViewRecientes.setAdapter(cargaAdapter);
-    }
-
-    private void insertSampleData() {
-        Calendar cal = Calendar.getInstance();
-
-        // Carga 1 - Diciembre
-        cal.set(2025, Calendar.DECEMBER, 1, 8, 30);
-        dbHelper.insertCarga(new Carga(
-                "Casa - Carga lenta",
-                cal.getTime(),
-                25.9,
-                150, // minutos
-                12.45
-        ));
-
-        // Carga 2 - Noviembre
-        cal.set(2025, Calendar.NOVEMBER, 30, 14, 15);
-        dbHelper.insertCarga(new Carga(
-                "Mall Plaza - Carga rápida",
-                cal.getTime(),
-                12.1,
-                30,
-                5.36
-        ));
-
-        // Carga 3 - Noviembre
-        cal.set(2025, Calendar.NOVEMBER, 25, 19, 45);
-        dbHelper.insertCarga(new Carga(
-                "Casa - Carga lenta",
-                cal.getTime(),
-                32.1,
-                190,
-                16.05
-        ));
-
-        // Carga 4 - Noviembre
-        cal.set(2025, Calendar.NOVEMBER, 20, 10, 30);
-        dbHelper.insertCarga(new Carga(
-                "Supermercado - Carga rápida",
-                cal.getTime(),
-                20.5,
-                45,
-                8.20
-        ));
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         loadDashboardData();
-        cargasRecientes = dbHelper.getCargasRecientes(5);
-        cargaAdapter.updateCargas(cargasRecientes);
         bottomNavigation.setSelectedItemId(R.id.nav_dashboard);
     }
 }

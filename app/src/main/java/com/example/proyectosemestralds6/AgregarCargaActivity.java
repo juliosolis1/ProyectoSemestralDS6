@@ -16,6 +16,9 @@ import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
+import androidx.room.Room;
+import com.example.proyectosemestralds6.database.AppDatabase;
+import com.example.proyectosemestralds6.database.entities.Carga;
 
 public class AgregarCargaActivity extends AppCompatActivity {
 
@@ -24,7 +27,7 @@ public class AgregarCargaActivity extends AppCompatActivity {
     private Button btnGuardarCarga;
     private Toolbar toolbar;
 
-    private DatabaseHelper dbHelper;
+    private AppDatabase db;
     private SharedPreferences preferences;
     private Calendar selectedDateTime;
     private SimpleDateFormat dateFormat = new SimpleDateFormat("dd/MM/yyyy", Locale.getDefault());
@@ -37,12 +40,22 @@ public class AgregarCargaActivity extends AppCompatActivity {
 
         initializeViews();
         setupToolbar();
-        setupDatabase();
+
+        db = Room.databaseBuilder(
+                        getApplicationContext(),
+                        AppDatabase.class, "mi_base_de_datos")
+                .allowMainThreadQueries()  // solo para pruebas
+                .build();
+
+        preferences = getSharedPreferences("EVChargeTracker", MODE_PRIVATE);
+
         setupSpinner();
         setupDateTimePickers();
         setupSaveButton();
         setDefaultValues();
+
     }
+
 
     private void initializeViews() {
         toolbar = findViewById(R.id.toolbar);
@@ -70,23 +83,14 @@ public class AgregarCargaActivity extends AppCompatActivity {
         });
     }
 
-    private void setupDatabase() {
-        dbHelper = new DatabaseHelper(this);
-        preferences = getSharedPreferences("EVChargeTracker", MODE_PRIVATE);
-    }
-
     private void setupSpinner() {
         String[] ubicaciones = {
-                "Casa - Carga lenta",
-                "Casa - Carga rápida",
-                "Mall Plaza - Carga rápida",
-                "Supermercado - Carga rápida",
+                "Casa - Carga lenta", "Casa - Carga rápida",
+                "Mall Plaza - Carga rápida", "Supermercado - Carga rápida",
                 "Estación de servicio - Carga rápida",
                 "Centro comercial - Carga rápida",
-                "Oficina - Carga lenta",
-                "Otro"
+                "Oficina - Carga lenta", "Otro"
         };
-
         ArrayAdapter<String> adapter = new ArrayAdapter<>(
                 this, android.R.layout.simple_spinner_item, ubicaciones);
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
@@ -165,19 +169,17 @@ public class AgregarCargaActivity extends AppCompatActivity {
             float tarifaElectrica = preferences.getFloat("tarifa_electrica", 0.50f);
             double costo = kwh * tarifaElectrica;
 
-            // Crear objeto Carga
-            Carga nuevaCarga = new Carga(
-                    ubicacion,
-                    selectedDateTime.getTime(),
-                    kwh,
-                    duracionTotal,
-                    costo
-            );
+            Carga carga = new Carga();
+            carga.lugar = ubicacion;
+            carga.fecha = dateFormat.format(selectedDateTime.getTime());
+            carga.energia_kwh = (float) kwh;
+            carga.duracion_min = duracionTotal;
+            carga.costo = (float) costo;
 
             // Guardar en base de datos
-            long resultado = dbHelper.insertCarga(nuevaCarga);
+            long id = db.cargaDao().insert(carga);
 
-            if (resultado != -1) {
+            if (id > 0) {
                 Toast.makeText(this, "Carga guardada exitosamente", Toast.LENGTH_SHORT).show();
                 finish();
             } else {
