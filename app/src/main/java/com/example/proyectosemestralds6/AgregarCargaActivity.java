@@ -46,6 +46,9 @@ public class AgregarCargaActivity extends AppCompatActivity {
                         AppDatabase.class, "mi_base_de_datos")
                 .allowMainThreadQueries()  // solo para pruebas
                 .build();
+        
+        // Use the singleton instance instead
+        db = AppDatabase.getDatabase(this);
 
         preferences = getSharedPreferences("EVChargeTracker", MODE_PRIVATE);
 
@@ -169,7 +172,20 @@ public class AgregarCargaActivity extends AppCompatActivity {
             float tarifaElectrica = preferences.getFloat("tarifa_electrica", 0.50f);
             double costo = kwh * tarifaElectrica;
 
-            Carga carga = new Carga();
+            // Use the Room entity instead of the model class
+            com.example.proyectosemestralds6.database.entities.Carga carga = 
+                new com.example.proyectosemestralds6.database.entities.Carga();
+            
+            // Get the first available vehicle (or create default logic)
+            List<com.example.proyectosemestralds6.database.entities.Vehiculo> vehiculos = 
+                db.vehiculoDao().getAll();
+            if (vehiculos.isEmpty()) {
+                // Create a default vehicle if none exists
+                DatabaseInitializer.initializeDatabase(db);
+                vehiculos = db.vehiculoDao().getAll();
+            }
+            
+            carga.idVehiculo = vehiculos.get(0).id; // Use first vehicle
             carga.lugar = ubicacion;
             carga.fecha = dateFormat.format(selectedDateTime.getTime());
             carga.energia_kwh = (float) kwh;

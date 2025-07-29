@@ -7,11 +7,20 @@ import java.util.List;
 @Dao
 public interface UsuarioDao {
     @Insert
-    void insert(Usuario usuario);
+    long insert(Usuario usuario);
+
+    @Insert
+    void insertAll(Usuario... usuarios);
 
     @Query("SELECT * FROM usuarios")
     List<Usuario> getAll();
 
+    @Query("SELECT * FROM usuarios WHERE id = :id")
+    Usuario getById(int id);
+
     @Delete
     void delete(Usuario usuario);
+    
+    @Query("DELETE FROM usuarios")
+    void deleteAll();
 }

@@ -9,6 +9,9 @@ public interface CargaDao {
     @Insert
     long insert(Carga carga);
 
+    @Insert
+    void insertAll(Carga... cargas);
+
     @Query("SELECT * FROM cargas")
     List<Carga> getAllCargas();
 
@@ -21,7 +24,13 @@ public interface CargaDao {
     @Query("SELECT * FROM cargas ORDER BY fecha DESC LIMIT :limit")
     List<Carga> getCargasRecientes(int limit);
 
+    @Query("SELECT * FROM cargas WHERE idVehiculo = :vehiculoId")
+    List<Carga> getCargasByVehiculo(int vehiculoId);
+
     @Delete
     void delete(Carga carga);
+    
+    @Query("DELETE FROM cargas")
+    void deleteAll();
 }
 

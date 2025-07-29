@@ -17,6 +17,7 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import java.text.DecimalFormat;
 import java.util.Calendar;
 import java.util.List;
+import java.util.ArrayList;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -35,11 +36,10 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        db = Room.databaseBuilder(
-                        getApplicationContext(),
-                        AppDatabase.class, "mi_base_de_datos")
-                .allowMainThreadQueries()
-                .build();
+        db = AppDatabase.getDatabase(this);
+        
+        // Initialize database with default data
+        DatabaseInitializer.initializeDatabase(db);
 
         initializeViews();
         setupBottomNavigation();
@@ -48,8 +48,7 @@ public class MainActivity extends AppCompatActivity {
         setupRecyclerView();
     }
 
-
-        private void initializeViews() {
+    private void initializeViews() {
         gastoTotalText = findViewById(R.id.txt_gasto_total);
         cargasTotalesText = findViewById(R.id.txt_cargas_totales);
         kwhCargadosText = findViewById(R.id.txt_kwh_cargados);
@@ -92,23 +91,60 @@ public class MainActivity extends AppCompatActivity {
 
     private void loadDashboardData() {
         List<Carga> todas = db.cargaDao().getAllCargas();
+        
+        // Convert Room entities to your Carga model
+        List<com.example.proyectosemestralds6.Carga> cargasModel = new ArrayList<>();
+        for (com.example.proyectosemestralds6.database.entities.Carga c : todas) {
+            try {
+                // Parse date string to Date object
+                String[] partes = c.fecha.split("/");
+                if (partes.length == 3) {
+                    int dia = Integer.parseInt(partes[0]);
+                    int mes = Integer.parseInt(partes[1]) - 1; // Calendar months are 0-based
+                    int año = Integer.parseInt(partes[2]);
+                    
+                    Calendar cal = Calendar.getInstance();
+                    cal.set(año, mes, dia);
+                    
+                    com.example.proyectosemestralds6.Carga cargaModel = 
+                        new com.example.proyectosemestralds6.Carga(
+                            c.lugar, 
+                            cal.getTime(), 
+                            c.energia_kwh, 
+                            c.duracion_min, 
+                            c.costo
+                        );
+                    cargaModel.setId(c.id);
+                    cargasModel.add(cargaModel);
+                }
+            } catch (Exception e) {
+                // Skip invalid date entries
+                continue;
+            }
+        }
 
         double gastoTotal = 0, kwhTotal = 0;
         int cargasEnCasa = 0;
         Calendar cal = Calendar.getInstance();
         int mes = cal.get(Calendar.MONTH), año = cal.get(Calendar.YEAR);
 
-        for (Carga c : todas) {
-            // asumiendo que fecha está en formato "dd/MM/yyyy"
-            String[] partes = c.fecha.split("/");
-            int dia = Integer.parseInt(partes[0]) - 1;
-            int mesC = Integer.parseInt(partes[1]) - 1;
-            int añoC = Integer.parseInt(partes[2]);
-            cal.set(añoC, mesC, dia);
-            if (mesC == mes && añoC == año) {
-                gastoTotal += c.costo;
-                kwhTotal += c.energia_kwh;
-                if (c.lugar.toLowerCase().contains("casa")) cargasEnCasa++;
+        for (com.example.proyectosemestralds6.database.entities.Carga c : todas) {
+            try {
+                String[] partes = c.fecha.split("/");
+                if (partes.length == 3) {
+                    int dia = Integer.parseInt(partes[0]);
+                    int mesC = Integer.parseInt(partes[1]) - 1;
+                    int añoC = Integer.parseInt(partes[2]);
+                    
+                    if (mesC == mes && añoC == año) {
+                        gastoTotal += c.costo;
+                        kwhTotal += c.energia_kwh;
+                        if (c.lugar.toLowerCase().contains("casa")) cargasEnCasa++;
+                    }
+                }
+            } catch (Exception e) {
+                // Skip invalid entries
+                continue;
             }
         }
 
@@ -120,11 +156,51 @@ public class MainActivity extends AppCompatActivity {
         );
         int porcCasa = todas.isEmpty() ? 0 : (cargasEnCasa * 100 / todas.size());
         cargasEnCasaText.setText(porcCasa + "%");
+        
+        // Setup recent charges
+        List<com.example.proyectosemestralds6.database.entities.Carga> recientes = 
+            db.cargaDao().getCargasRecientes(5);
+        List<com.example.proyectosemestralds6.Carga> recientesModel = new ArrayList<>();
+        
+        for (com.example.proyectosemestralds6.database.entities.Carga c : recientes) {
+            try {
+                String[] partes = c.fecha.split("/");
+                if (partes.length == 3) {
+                    int dia = Integer.parseInt(partes[0]);
+                    int mesC = Integer.parseInt(partes[1]) - 1;
+                    int añoC = Integer.parseInt(partes[2]);
+                    
+                    Calendar calTemp = Calendar.getInstance();
+                    calTemp.set(añoC, mesC, dia);
+                    
+                    com.example.proyectosemestralds6.Carga cargaModel = 
+                        new com.example.proyectosemestralds6.Carga(
+                            c.lugar, 
+                            calTemp.getTime(), 
+                            c.energia_kwh, 
+                            c.duracion_min, 
+                            c.costo
+                        );
+                    cargaModel.setId(c.id);
+                    recientesModel.add(cargaModel);
+                }
+            } catch (Exception e) {
+                continue;
+            }
+        }
+        
+        if (cargaAdapter == null) {
+            cargaAdapter = new CargaAdapter(recientesModel, true);
+        } else {
+            cargaAdapter.updateCargas(recientesModel);
+        }
     }
 
     private void setupRecyclerView() {
         recyclerViewRecientes.setLayoutManager(new LinearLayoutManager(this));
-        recyclerViewRecientes.setAdapter(cargaAdapter);
+        if (cargaAdapter != null) {
+            recyclerViewRecientes.setAdapter(cargaAdapter);
+        }
     }
 
     @Override

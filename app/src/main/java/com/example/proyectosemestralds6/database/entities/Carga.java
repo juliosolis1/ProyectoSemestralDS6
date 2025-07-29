@@ -13,7 +13,7 @@ public class Carga {
     @PrimaryKey(autoGenerate = true)
     public int id;
 
-    public int idVehiculo;
+    public int idVehiculo = 1; // Default to first vehicle
     public String fecha;
     public float energia_kwh;
     public int duracion_min;

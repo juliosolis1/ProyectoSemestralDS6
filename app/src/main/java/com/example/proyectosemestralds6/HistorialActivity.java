@@ -32,11 +32,7 @@ public class HistorialActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_historial);
 
-        db = Room.databaseBuilder(
-                        getApplicationContext(),
-                        AppDatabase.class, "mi_base_de_datos")
-                .allowMainThreadQueries()
-                .build();
+        db = AppDatabase.getDatabase(this);
 
         initializeViews();
         setupBottomNavigation();
@@ -120,7 +116,7 @@ public class HistorialActivity extends AppCompatActivity {
     }
 
     private void loadHistorialData() {
-        List<Carga> cargas;
+        List<com.example.proyectosemestralds6.database.entities.Carga> cargas;
         switch (filtroActual) {
             case "todos":
                 cargas = db.cargaDao().getAllCargas();
@@ -135,11 +131,49 @@ public class HistorialActivity extends AppCompatActivity {
             default:
                 cargas = db.cargaDao().getAllCargas();
         }
+        
+        // Convert to model objects for the adapter
+        List<com.example.proyectosemestralds6.Carga> cargasModel = new ArrayList<>();
+        for (com.example.proyectosemestralds6.database.entities.Carga c : cargas) {
+            try {
+                String[] partes = c.fecha.split("/");
+                if (partes.length == 3) {
+                    int dia = Integer.parseInt(partes[0]);
+                    int mes = Integer.parseInt(partes[1]) - 1;
+                    int año = Integer.parseInt(partes[2]);
+                    
+                    Calendar cal = Calendar.getInstance();
+                    cal.set(año, mes, dia);
+                    
+                    com.example.proyectosemestralds6.Carga cargaModel = 
+                        new com.example.proyectosemestralds6.Carga(
+                            c.lugar, 
+                            cal.getTime(), 
+                            c.energia_kwh, 
+                            c.duracion_min, 
+                            c.costo
+                        );
+                    cargaModel.setId(c.id);
+                    cargasModel.add(cargaModel);
+                }
+            } catch (Exception e) {
+                continue;
+            }
+        }
+        
+        if (cargaAdapter == null) {
+            cargaAdapter = new CargaAdapter(cargasModel, true);
+            setupRecyclerView();
+        } else {
+            cargaAdapter.updateCargas(cargasModel);
+        }
     }
 
     private void setupRecyclerView() {
         recyclerViewHistorial.setLayoutManager(new LinearLayoutManager(this));
-        recyclerViewHistorial.setAdapter(cargaAdapter);
+        if (cargaAdapter != null) {
+            recyclerViewHistorial.setAdapter(cargaAdapter);
+        }
     }
 
     @Override
