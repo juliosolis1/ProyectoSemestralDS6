@@ -1,6 +1,7 @@
 package com.example.proyectosemestralds6;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.view.MenuItem;
 import android.view.View;
@@ -9,12 +10,18 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-import androidx.room.Room;
+import com.example.proyectosemestralds6.api.ApiClient;
+import com.example.proyectosemestralds6.api.ApiInterface;
 import com.example.proyectosemestralds6.database.AppDatabase;
 import com.example.proyectosemestralds6.database.entities.Carga;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
+import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.List;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 public class HistorialActivity extends AppCompatActivity {
 
@@ -26,6 +33,8 @@ public class HistorialActivity extends AppCompatActivity {
 
     private AppDatabase db;
     private String filtroActual = "todos";
+    private List<com.example.proyectosemestralds6.Carga> cargasModel = new ArrayList<>();
+    private SharedPreferences preferences;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -33,12 +42,14 @@ public class HistorialActivity extends AppCompatActivity {
         setContentView(R.layout.activity_historial);
 
         db = AppDatabase.getDatabase(this);
+        preferences = getSharedPreferences("EVChargeTracker", MODE_PRIVATE);
 
         initializeViews();
         setupBottomNavigation();
         setupFloatingActionButton();
         setupFilterButtons();
         setupRecyclerView();
+        loadHistorialData();
     }
 
     private void initializeViews() {
@@ -50,7 +61,6 @@ public class HistorialActivity extends AppCompatActivity {
         bottomNavigation = findViewById(R.id.bottom_navigation);
         fabAgregarCarga = findViewById(R.id.fab_agregar_carga);
     }
-
 
     private void setupBottomNavigation() {
         bottomNavigation.setSelectedItemId(R.id.nav_historial);
@@ -83,13 +93,23 @@ public class HistorialActivity extends AppCompatActivity {
     }
 
     private void setupFilterButtons() {
-        btnTodos.setOnClickListener(v -> { filtroActual = "todos"; loadHistorialData(); });
-        btnCasa.setOnClickListener(v -> { filtroActual = "Casa%"; loadHistorialData(); });
-        btnEstacion.setOnClickListener(v -> { filtroActual = "Estación%"; loadHistorialData(); });
-        btnCargaLenta.setOnClickListener(v -> { filtroActual = "lenta%"; loadHistorialData(); });
-        loadHistorialData();
+        btnTodos.setOnClickListener(v -> {
+            filtroActual = "todos";
+            loadHistorialData();
+        });
+        btnCasa.setOnClickListener(v -> {
+            filtroActual = "Casa%";
+            loadHistorialData();
+        });
+        btnEstacion.setOnClickListener(v -> {
+            filtroActual = "Estación%";
+            loadHistorialData();
+        });
+        btnCargaLenta.setOnClickListener(v -> {
+            filtroActual = "lenta%";
+            loadHistorialData();
+        });
     }
-
 
     private void updateFilterButtons() {
         // Reset all buttons
@@ -116,43 +136,65 @@ public class HistorialActivity extends AppCompatActivity {
     }
 
     private void loadHistorialData() {
-        List<com.example.proyectosemestralds6.database.entities.Carga> cargas;
-        switch (filtroActual) {
-            case "todos":
-                cargas = db.cargaDao().getAllCargas();
-                break;
-            case "Casa%":
-            case "Estación%":
-                cargas = db.cargaDao().getCargasByUbicacion(filtroActual);
-                break;
-            case "lenta%":
-                cargas = db.cargaDao().getCargasByTipo(filtroActual);
-                break;
-            default:
-                cargas = db.cargaDao().getAllCargas();
-        }
-        
-        // Convert to model objects for the adapter
+        String token = "Bearer " + obtenerTokenDeSharedPreferences();
+        int userId = obtenerUserIdDeSharedPreferences();
+
+        ApiInterface apiService = ApiClient.getApiService();
+        Call<List<Carga>> call = apiService.getUserCharges(token, userId);
+
+        call.enqueue(new Callback<List<Carga>>() {
+            @Override
+            public void onResponse(Call<List<Carga>> call, Response<List<Carga>> response) {
+                if (response.isSuccessful()) {
+                    List<Carga> cargasRemotas = response.body();
+                    cargasModel = convertirCargasRoomAModelo(cargasRemotas);
+                    actualizarAdaptador();
+
+                    // Guardar localmente
+                    new Thread(() -> {
+                        db.cargaDao().deleteAll();
+                        db.cargaDao().insertAll(cargasRemotas.toArray(new Carga[0]));
+                    }).start();
+                } else {
+                    cargasModel = cargarDatosLocales();
+                    actualizarAdaptador();
+                }
+            }
+
+            @Override
+            public void onFailure(Call<List<Carga>> call, Throwable t) {
+                cargasModel = cargarDatosLocales();
+                actualizarAdaptador();
+            }
+        });
+    }
+
+    private List<com.example.proyectosemestralds6.Carga> cargarDatosLocales() {
+        List<Carga> cargasLocales = db.cargaDao().getAllCargas();
+        return convertirCargasRoomAModelo(cargasLocales);
+    }
+
+    private List<com.example.proyectosemestralds6.Carga> convertirCargasRoomAModelo(List<Carga> cargasRoom) {
         List<com.example.proyectosemestralds6.Carga> cargasModel = new ArrayList<>();
-        for (com.example.proyectosemestralds6.database.entities.Carga c : cargas) {
+        for (Carga c : cargasRoom) {
             try {
                 String[] partes = c.fecha.split("/");
                 if (partes.length == 3) {
                     int dia = Integer.parseInt(partes[0]);
                     int mes = Integer.parseInt(partes[1]) - 1;
                     int año = Integer.parseInt(partes[2]);
-                    
+
                     Calendar cal = Calendar.getInstance();
                     cal.set(año, mes, dia);
-                    
-                    com.example.proyectosemestralds6.Carga cargaModel = 
-                        new com.example.proyectosemestralds6.Carga(
-                            c.lugar, 
-                            cal.getTime(), 
-                            c.energia_kwh, 
-                            c.duracion_min, 
-                            c.costo
-                        );
+
+                    com.example.proyectosemestralds6.Carga cargaModel =
+                            new com.example.proyectosemestralds6.Carga(
+                                    c.lugar,
+                                    cal.getTime(),
+                                    c.energia_kwh,
+                                    c.duracion_min,
+                                    c.costo
+                            );
                     cargaModel.setId(c.id);
                     cargasModel.add(cargaModel);
                 }
@@ -160,10 +202,13 @@ public class HistorialActivity extends AppCompatActivity {
                 continue;
             }
         }
-        
+        return cargasModel;
+    }
+
+    private void actualizarAdaptador() {
         if (cargaAdapter == null) {
             cargaAdapter = new CargaAdapter(cargasModel, true);
-            setupRecyclerView();
+            recyclerViewHistorial.setAdapter(cargaAdapter);
         } else {
             cargaAdapter.updateCargas(cargasModel);
         }
@@ -171,9 +216,18 @@ public class HistorialActivity extends AppCompatActivity {
 
     private void setupRecyclerView() {
         recyclerViewHistorial.setLayoutManager(new LinearLayoutManager(this));
-        if (cargaAdapter != null) {
-            recyclerViewHistorial.setAdapter(cargaAdapter);
+        if (cargaAdapter == null) {
+            cargaAdapter = new CargaAdapter(cargasModel, true);
         }
+        recyclerViewHistorial.setAdapter(cargaAdapter);
+    }
+
+    private String obtenerTokenDeSharedPreferences() {
+        return preferences.getString("token", "");
+    }
+
+    private int obtenerUserIdDeSharedPreferences() {
+        return preferences.getInt("userId", 1);
     }
 
     @Override

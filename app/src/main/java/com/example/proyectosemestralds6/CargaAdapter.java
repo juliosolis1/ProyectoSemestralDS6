@@ -14,13 +14,13 @@ import java.util.Locale;
 
 public class CargaAdapter extends RecyclerView.Adapter<CargaAdapter.CargaViewHolder> {
 
-    private List<Carga> cargas;
+    private List<com.example.proyectosemestralds6.Carga> cargas;
     private boolean mostrarFechaCompleta;
     private DecimalFormat decimalFormat = new DecimalFormat("#.##");
     private SimpleDateFormat dateFormat = new SimpleDateFormat("dd MMM, yyyy", Locale.getDefault());
     private SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
 
-    public CargaAdapter(List<Carga> cargas, boolean mostrarFechaCompleta) {
+    public CargaAdapter(List<com.example.proyectosemestralds6.Carga> cargas, boolean mostrarFechaCompleta) {
         this.cargas = cargas;
         this.mostrarFechaCompleta = mostrarFechaCompleta;
     }
@@ -35,7 +35,7 @@ public class CargaAdapter extends RecyclerView.Adapter<CargaAdapter.CargaViewHol
 
     @Override
     public void onBindViewHolder(@NonNull CargaViewHolder holder, int position) {
-        Carga carga = cargas.get(position);
+        com.example.proyectosemestralds6.Carga carga = cargas.get(position);
 
         // Configurar icono según ubicación
         if (carga.esCargaEnCasa()) {
@@ -76,7 +76,7 @@ public class CargaAdapter extends RecyclerView.Adapter<CargaAdapter.CargaViewHol
         return cargas.size();
     }
 
-    public void updateCargas(List<Carga> nuevasCargas) {
+    public void updateCargas(List<com.example.proyectosemestralds6.Carga> nuevasCargas) {
         this.cargas = nuevasCargas;
         notifyDataSetChanged();
     }

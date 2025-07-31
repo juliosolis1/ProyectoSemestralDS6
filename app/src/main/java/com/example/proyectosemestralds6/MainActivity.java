@@ -1,15 +1,17 @@
 package com.example.proyectosemestralds6;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
-import android.view.MenuItem;
 import android.view.View;
+import android.view.MenuItem;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-import androidx.room.Room;
+import com.example.proyectosemestralds6.api.ApiClient;
+import com.example.proyectosemestralds6.api.ApiInterface;
 import com.example.proyectosemestralds6.database.AppDatabase;
 import com.example.proyectosemestralds6.database.entities.Carga;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
@@ -18,6 +20,9 @@ import java.text.DecimalFormat;
 import java.util.Calendar;
 import java.util.List;
 import java.util.ArrayList;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -30,6 +35,7 @@ public class MainActivity extends AppCompatActivity {
 
     private AppDatabase db;
     private DecimalFormat decimalFormat = new DecimalFormat("#.##");
+    private SharedPreferences preferences;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -37,15 +43,13 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         db = AppDatabase.getDatabase(this);
-        
-        // Initialize database with default data
+        preferences = getSharedPreferences("EVChargeTracker", MODE_PRIVATE);
         DatabaseInitializer.initializeDatabase(db);
 
         initializeViews();
         setupBottomNavigation();
         setupFloatingActionButton();
         loadDashboardData();
-        setupRecyclerView();
     }
 
     private void initializeViews() {
@@ -90,52 +94,51 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void loadDashboardData() {
-        List<Carga> todas = db.cargaDao().getAllCargas();
-        
-        // Convert Room entities to your Carga model
-        List<com.example.proyectosemestralds6.Carga> cargasModel = new ArrayList<>();
-        for (com.example.proyectosemestralds6.database.entities.Carga c : todas) {
-            try {
-                // Parse date string to Date object
-                String[] partes = c.fecha.split("/");
-                if (partes.length == 3) {
-                    int dia = Integer.parseInt(partes[0]);
-                    int mes = Integer.parseInt(partes[1]) - 1; // Calendar months are 0-based
-                    int año = Integer.parseInt(partes[2]);
-                    
-                    Calendar cal = Calendar.getInstance();
-                    cal.set(año, mes, dia);
-                    
-                    com.example.proyectosemestralds6.Carga cargaModel = 
-                        new com.example.proyectosemestralds6.Carga(
-                            c.lugar, 
-                            cal.getTime(), 
-                            c.energia_kwh, 
-                            c.duracion_min, 
-                            c.costo
-                        );
-                    cargaModel.setId(c.id);
-                    cargasModel.add(cargaModel);
+        String token = "Bearer " + obtenerTokenDeSharedPreferences();
+        int userId = obtenerUserIdDeSharedPreferences();
+
+        ApiInterface apiService = ApiClient.getApiService();
+        Call<List<Carga>> call = apiService.getUserCharges(token, userId);
+
+        call.enqueue(new Callback<List<Carga>>() {
+            @Override
+            public void onResponse(Call<List<Carga>> call, Response<List<Carga>> response) {
+                if (response.isSuccessful()) {
+                    List<Carga> cargasRemotas = response.body();
+                    actualizarUI(cargasRemotas);
+                    guardarCargasLocales(cargasRemotas);
+                } else {
+                    // Cargar datos locales si falla
+                    List<Carga> cargasLocales = db.cargaDao().getAllCargas();
+                    actualizarUI(cargasLocales);
                 }
-            } catch (Exception e) {
-                // Skip invalid date entries
-                continue;
             }
-        }
+
+            @Override
+            public void onFailure(Call<List<Carga>> call, Throwable t) {
+                List<Carga> cargasLocales = db.cargaDao().getAllCargas();
+                actualizarUI(cargasLocales);
+            }
+        });
+    }
+
+    private void actualizarUI(List<Carga> cargas) {
+        // Convertir a modelo para el dashboard
+        List<com.example.proyectosemestralds6.Carga> cargasModel = convertirCargasRoomAModelo(cargas);
 
         double gastoTotal = 0, kwhTotal = 0;
         int cargasEnCasa = 0;
         Calendar cal = Calendar.getInstance();
         int mes = cal.get(Calendar.MONTH), año = cal.get(Calendar.YEAR);
 
-        for (com.example.proyectosemestralds6.database.entities.Carga c : todas) {
+        for (Carga c : cargas) {
             try {
                 String[] partes = c.fecha.split("/");
                 if (partes.length == 3) {
                     int dia = Integer.parseInt(partes[0]);
                     int mesC = Integer.parseInt(partes[1]) - 1;
                     int añoC = Integer.parseInt(partes[2]);
-                    
+
                     if (mesC == mes && añoC == año) {
                         gastoTotal += c.costo;
                         kwhTotal += c.energia_kwh;
@@ -143,57 +146,75 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
             } catch (Exception e) {
-                // Skip invalid entries
                 continue;
             }
         }
 
         gastoTotalText.setText("$" + decimalFormat.format(gastoTotal));
-        cargasTotalesText.setText(String.valueOf(todas.size()));
+        cargasTotalesText.setText(String.valueOf(cargas.size()));
         kwhCargadosText.setText(decimalFormat.format(kwhTotal));
         promedioCargaText.setText(
-                todas.isEmpty() ? "$0.00" : "$" + decimalFormat.format(gastoTotal / todas.size())
+                cargas.isEmpty() ? "$0.00" : "$" + decimalFormat.format(gastoTotal / cargas.size())
         );
-        int porcCasa = todas.isEmpty() ? 0 : (cargasEnCasa * 100 / todas.size());
+        int porcCasa = cargas.isEmpty() ? 0 : (cargasEnCasa * 100 / cargas.size());
         cargasEnCasaText.setText(porcCasa + "%");
-        
-        // Setup recent charges
-        List<com.example.proyectosemestralds6.database.entities.Carga> recientes = 
-            db.cargaDao().getCargasRecientes(5);
-        List<com.example.proyectosemestralds6.Carga> recientesModel = new ArrayList<>();
-        
-        for (com.example.proyectosemestralds6.database.entities.Carga c : recientes) {
+
+        // Obtener cargas recientes (últimas 5)
+        List<Carga> recientes = cargas.subList(0, Math.min(5, cargas.size()));
+        List<com.example.proyectosemestralds6.Carga> recientesModel = convertirCargasRoomAModelo(recientes);
+
+        if (cargaAdapter == null) {
+            cargaAdapter = new CargaAdapter(recientesModel, true);
+            recyclerViewRecientes.setAdapter(cargaAdapter);
+        } else {
+            cargaAdapter.updateCargas(recientesModel);
+        }
+    }
+
+    private List<com.example.proyectosemestralds6.Carga> convertirCargasRoomAModelo(List<Carga> cargasRoom) {
+        List<com.example.proyectosemestralds6.Carga> cargasModel = new ArrayList<>();
+        for (Carga c : cargasRoom) {
             try {
                 String[] partes = c.fecha.split("/");
                 if (partes.length == 3) {
                     int dia = Integer.parseInt(partes[0]);
-                    int mesC = Integer.parseInt(partes[1]) - 1;
-                    int añoC = Integer.parseInt(partes[2]);
-                    
-                    Calendar calTemp = Calendar.getInstance();
-                    calTemp.set(añoC, mesC, dia);
-                    
-                    com.example.proyectosemestralds6.Carga cargaModel = 
-                        new com.example.proyectosemestralds6.Carga(
-                            c.lugar, 
-                            calTemp.getTime(), 
-                            c.energia_kwh, 
-                            c.duracion_min, 
-                            c.costo
-                        );
+                    int mes = Integer.parseInt(partes[1]) - 1;
+                    int año = Integer.parseInt(partes[2]);
+
+                    Calendar cal = Calendar.getInstance();
+                    cal.set(año, mes, dia);
+
+                    com.example.proyectosemestralds6.Carga cargaModel =
+                            new com.example.proyectosemestralds6.Carga(
+                                    c.lugar,
+                                    cal.getTime(),
+                                    c.energia_kwh,
+                                    c.duracion_min,
+                                    c.costo
+                            );
                     cargaModel.setId(c.id);
-                    recientesModel.add(cargaModel);
+                    cargasModel.add(cargaModel);
                 }
             } catch (Exception e) {
                 continue;
             }
         }
-        
-        if (cargaAdapter == null) {
-            cargaAdapter = new CargaAdapter(recientesModel, true);
-        } else {
-            cargaAdapter.updateCargas(recientesModel);
-        }
+        return cargasModel;
+    }
+
+    private void guardarCargasLocales(List<Carga> cargas) {
+        new Thread(() -> {
+            db.cargaDao().deleteAll();
+            db.cargaDao().insertAll(cargas.toArray(new Carga[0]));
+        }).start();
+    }
+
+    private String obtenerTokenDeSharedPreferences() {
+        return preferences.getString("token", "");
+    }
+
+    private int obtenerUserIdDeSharedPreferences() {
+        return preferences.getInt("userId", 1);
     }
 
     private void setupRecyclerView() {
